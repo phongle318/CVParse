@@ -19,19 +19,21 @@ type ContentRequest struct {
 }
 
 type Result struct {
-	Items  []Item `json:"address"`
+	PersonName  []Item `json:"person_name"`
+	Email       []Item `json:"email"`
+	PhoneNumber []Item `json:"phone_number"`
 }
 
 type Item struct {
-	Value       string    `json:"value"`
-	End 		int       `json:"end"`
-	Start 		int       `json:"start"`
-	Type        string    `json:"type"`
-	RealValue   string `json:"real_value"`
+	Value     string `json:"value"`
+	End       int    `json:"end"`
+	Start     int    `json:"start"`
+	Type      string `json:"type"`
+	RealValue string `json:"real_value"`
 }
 
 func SendTextForRecognize(content ContentRequest, uri string) (
-	 result []Item, err error) {
+	result Result, err error) {
 	log.Info("Start Send Text")
 	URI := regEndpoint + uri
 
