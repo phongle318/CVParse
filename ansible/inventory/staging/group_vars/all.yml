@@ -1,0 +1,11 @@
+---
+go_path: /home/phonglh/go
+supervisor_conf_dir: /etc/supervisor/conf.d
+supervisor_user: ubuntu
+cv_base_dir: /home/ubuntu/cvparse
+cv_port: 8050
+cv_program_name: CVParse
+cv_app_log_level: debug
+cv_bot_log_level: info
+
+# ansible-playbook -i inventory/staging deploy-bot.yml

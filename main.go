@@ -46,9 +46,7 @@ func viewCVForm(w http.ResponseWriter, r *http.Request) {
 }
 
 func parseCV(w http.ResponseWriter, r *http.Request) {
-	log.Info("Parse CV")
-	log.Info(r)
-
+	// createDirIfNotExist("/CV")
 	r.ParseMultipartForm(32 << 20)
 	file, handler, err := r.FormFile("attachment")
 	if err != nil {
@@ -56,11 +54,9 @@ func parseCV(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer file.Close()
-	log.Infof("%+v", handler.Header)
-	log.Infof("%+v", w)
 	f, err := os.OpenFile("./CV/test/"+handler.Filename, os.O_RDWR|os.O_CREATE, os.ModePerm)
 	if err != nil {
-		log.Info(err)
+		log.Errorf("Error happen Open file : %s", err)
 		return
 	}
 	defer f.Close()
@@ -70,17 +66,19 @@ func parseCV(w http.ResponseWriter, r *http.Request) {
 
 	err = archiver.Zip.Open("./CV/test/"+handler.Filename, extractOutput)
 	if err != nil {
-		log.Info(err)
+		log.Errorf("Error happen Extract Zip : %s", err)
 		return
 	}
 	//Get folder file
 	files, err := ioutil.ReadDir(extractOutput)
 	if err != nil {
-		log.Fatal(err)
+		log.Errorf("Error happen ReadDir : %s", err)
+		return
 	}
 	clientsFile, err := os.OpenFile("./CV/res/result_"+time.Now().Format("20060102150405")+".csv", os.O_RDWR|os.O_CREATE, os.ModePerm)
 	if err != nil {
-		log.Fatal(err)
+		log.Errorf("Error happen OpenFile : %s", err)
+		return
 	}
 	defer clientsFile.Close()
 	clients := []*Client{}
@@ -89,12 +87,14 @@ func parseCV(w http.ResponseWriter, r *http.Request) {
 		log.Info(files[f].Name())
 		matched, err := regexp.MatchString(".html.*", files[f].Name())
 		if err != nil {
-			log.Fatal(err)
+			log.Fatalf("Fatal happen MatchString html: %s", err)
+			return
 		}
 		if matched == true {
 			file, err := os.Open(extractOutput + files[f].Name())
 			if err != nil {
-				log.Error(err)
+				log.Errorf("Error happen in Open extractOutput File : %s", err)
+				return
 			}
 			defer file.Close()
 			b, err := ioutil.ReadAll(file)
@@ -104,7 +104,8 @@ func parseCV(w http.ResponseWriter, r *http.Request) {
 		} else {
 			doc, err := regexp.MatchString(".doc.*", files[f].Name())
 			if err != nil {
-				log.Fatal(err)
+				log.Fatalf("Fatal happen MatchString doc : %s", err)
+				return
 			}
 			if doc == true {
 				log.Infof("Cannot handle doc : %s", files[f].Name())
@@ -112,7 +113,7 @@ func parseCV(w http.ResponseWriter, r *http.Request) {
 			}
 			res, err := docconv.ConvertPath(extractOutput + files[f].Name())
 			if err != nil {
-				log.Error(err)
+				log.Errorf("Error happen in ConvertPath : %s", err)
 				return
 			}
 			input = res.Body
@@ -134,15 +135,22 @@ func parseCV(w http.ResponseWriter, r *http.Request) {
 
 			content, err := SendTextForRecognize(cont, "cv")
 			if err != nil {
-				log.Error(err)
+				log.Errorf("Error happen in SendTextForRecognize : %s", err)
+				return
 			}
 			name := ""
 			if len(content.PersonName) > 0 {
 				var client Client
 				client.FileName = files[f].Name()
 				client.Content = "[" + inputReplace + "]"
+				// for i := 0; i < len(content.PersonName); i++ {
+				// 	name = name + content.PersonName[i].RealValue + "\n"
+				// }
 				for i := 0; i < len(content.PersonName); i++ {
-					name = name + content.PersonName[i].RealValue + "\n"
+					if strings.ToLower(content.PersonName[i].RealValue) != "hồ sơ" && strings.ToLower(content.PersonName[i].RealValue) != "lý lịch" {
+						name = content.PersonName[i].RealValue
+						break
+					}
 				}
 				client.Name = name
 				if len(content.Email) > 0 {
@@ -163,7 +171,7 @@ func parseCV(w http.ResponseWriter, r *http.Request) {
 	// fileBase := filepath.Base(fileName)
 	err = gocsv.MarshalFile(&clients, clientsFile) // Use this to save the CSV back to the file
 	if err != nil {
-		log.Error(err)
+		log.Errorf("Error happen in MarshalFile : %s", err)
 	}
 	// w.Header().Set("Content-Type", "application/json")
 	// w.Write([]byte(fileBase))
@@ -174,3 +182,12 @@ func parseCV(w http.ResponseWriter, r *http.Request) {
 
 	http.ServeFile(w, r, clientsFile.Name())
 }
+
+// func createDirIfNotExist(dir string) {
+// 	if _, err := os.Stat(dir); os.IsNotExist(err) {
+// 		err = os.MkdirAll(dir, 0700)
+// 		if err != nil {
+// 			panic(err)
+// 		}
+// 	}
+// }

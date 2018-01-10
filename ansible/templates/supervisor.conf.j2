@@ -1,0 +1,13 @@
+[program:{{ program_name }}]
+command={{ binary_dest }}/run.sh {{ binary_name }}
+stopasgroup=true
+autostart=true
+autorestart=true
+startretries=3
+user={{ supervisor_user }}
+directory={{ binary_dest }}
+environment=
+redirect_stderr=true
+stdout_logfile={{ binary_dest }}/{{ binary_name }}.log
+stdout_logfile_maxbytes=50MB
+stdout_logfile_backups=10

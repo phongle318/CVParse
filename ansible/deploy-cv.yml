@@ -1,0 +1,54 @@
+---
+- hosts: service
+  tasks:
+    - name: Create destination dir
+      file:
+        path: '{{ cv_base_dir }}'
+        state: directory
+        mode: 0755
+      tags: setup
+
+    - name: Copy run script
+      vars:
+        binary_dest: '{{ cv_base_dir }}'
+      template:
+        src: templates/run.sh.j2
+        dest: '{{ cv_base_dir }}/run.sh'
+        mode: 0755
+      tags: setup
+
+    - name: Installing cv into supervisor
+      vars:
+        binary_name: CVParse
+        program_name: '{{ cv_program_name }}'
+        binary_dest: '{{ cv_base_dir }}'
+      become: true
+      template:
+        src: templates/supervisor.conf.j2
+        dest: '{{ supervisor_conf_dir }}/{{ program_name }}.conf'
+      tags: setup
+
+    - name: Build cv binary
+      local_action: command go install github.com/phongle318/CVParse
+      tags: cv
+
+    - name: Copy binary
+      copy:
+        src: "{{ go_path }}/bin/CVParse"
+        dest: "{{ cv_base_dir }}"
+        mode: 0755
+      tags: cv
+
+    - name: Copy order template 
+      copy:
+        src: "{{ go_path }}/bin/cv.html"
+        dest: "{{ cv_base_dir }}"
+        mode: 0755
+      tags: [template]
+
+    - name: Restart service
+      become: true
+      supervisorctl:
+        name: CVParse
+        state: restarted
+      tags: [cv,config]
