@@ -9,6 +9,10 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"encoding/json"
+		
+	// "syscall"
+	"os/exec"
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/gocarina/gocsv"
@@ -17,7 +21,12 @@ import (
 	"github.com/mholt/archiver"
 	"github.com/sajari/docconv"
 )
-
+const (
+	RootFolder string = "./CV/"
+	InputFolder string = "./CV/input_folder"
+	OutputFolder string = "./CV/output_folder"
+	ResultFolder string = "./CV/result"
+)
 type Client struct { // Our example struct, you can use "-" to ignore a field
 	FileName string `csv:"filename"`
 	Tel      string `csv:"phone"`
@@ -53,8 +62,13 @@ func parseCV(w http.ResponseWriter, r *http.Request) {
 		log.Info(err)
 		return
 	}
+	log.Info(file)
+	log.Info("file")
 	defer file.Close()
-	f, err := os.OpenFile("./CV/test/"+handler.Filename, os.O_RDWR|os.O_CREATE, os.ModePerm)
+	CreateDirIfNotExist(RootFolder)
+	folderGen := InputFolder+time.Now().Format("20060102150405") + "/"
+	CreateDirIfNotExist(folderGen)
+	f, err := os.OpenFile(folderGen+handler.Filename, os.O_RDWR|os.O_CREATE, os.ModePerm)
 	if err != nil {
 		log.Errorf("Error happen Open file : %s", err)
 		return
@@ -62,22 +76,30 @@ func parseCV(w http.ResponseWriter, r *http.Request) {
 	defer f.Close()
 	io.Copy(f, file)
 
-	extractOutput := "./CV/output_folder" + time.Now().Format("20060102150405") + "/"
-
-	err = archiver.Zip.Open("./CV/test/"+handler.Filename, extractOutput)
+	extractOutput := OutputFolder + time.Now().Format("20060102150405") + "/"
+	log.Info("handler.Filenam")
+	log.Info(handler.Filename)
+	err = archiver.Zip.Open(folderGen+handler.Filename, extractOutput)
 	if err != nil {
 		log.Errorf("Error happen Extract Zip : %s", err)
+		ResponseError(w, err)
 		return
 	}
 	//Get folder file
 	files, err := ioutil.ReadDir(extractOutput)
 	if err != nil {
 		log.Errorf("Error happen ReadDir : %s", err)
+		ResponseError(w, err)
 		return
 	}
-	clientsFile, err := os.OpenFile("./CV/res/result_"+time.Now().Format("20060102150405")+".csv", os.O_RDWR|os.O_CREATE, os.ModePerm)
+
+	CreateDirIfNotExist(ResultFolder)
+	clientFileName := "/result_"+time.Now().Format("20060102150405")+".csv"
+
+	clientsFile, err := os.OpenFile(ResultFolder+clientFileName, os.O_RDWR|os.O_CREATE, os.ModePerm)
 	if err != nil {
 		log.Errorf("Error happen OpenFile : %s", err)
+		ResponseError(w, err)
 		return
 	}
 	defer clientsFile.Close()
@@ -102,31 +124,39 @@ func parseCV(w http.ResponseWriter, r *http.Request) {
 			input = plain
 			log.Infof("input %s", input)
 		} else {
-			doc, err := regexp.MatchString(".doc.*", files[f].Name())
+			pdfMatched, err := regexp.MatchString(".pdf.*", files[f].Name())
 			if err != nil {
-				log.Fatalf("Fatal happen MatchString doc : %s", err)
+				log.Fatalf("Fatal happen MatchString pdf: %s", err)
 				return
 			}
-			if doc == true {
-				log.Infof("Cannot handle doc : %s", files[f].Name())
-				continue
+			if pdfMatched == true {
+				out, err := exec.Command("python3", "/usr/local/bin/pdf2txt.py", "-W0", extractOutput+"/"+files[f].Name()).Output()
+				if err != nil {
+					log.Fatal(err)
+				}
+				input = BytesToString(out)
+			} else {
+				res, err := docconv.ConvertPath(extractOutput + files[f].Name())
+				if err != nil {
+					log.Errorf("Error happen in ConvertPath : %s", err)
+					return
+				}
+				input = res.Body
 			}
-			res, err := docconv.ConvertPath(extractOutput + files[f].Name())
-			if err != nil {
-				log.Errorf("Error happen in ConvertPath : %s", err)
-				return
-			}
-			input = res.Body
 		}
 		// Pre Processing
 		// input = strings.Join(strings.Fields(input), " ")
 		// log.Infof("standard input %s",input)
 		// re := regexp.MustCompile(`([\t\n\r]|(&nbsp;)){3,}`)
+
+
 		re := regexp.MustCompile(`([\s]|&nbsp;){3,}|((<\s*br\s*\/?>)|[\t\n\r])`)
 		//inputReplace := re.ReplaceAllString(input, " ") //replace with space
 		inputReplace := re.ReplaceAllString(input, " ; ") //replace with ;
 		inputReplace = strings.Join(strings.Fields(inputReplace), " ")
 		log.Infof("Ket Qua %s", inputReplace)
+		// inputReplace = string([]rune(inputReplace)[:1024])
+
 		if inputReplace != "" {
 			//Start Sending Request
 			cont := ContentRequest{}
@@ -136,7 +166,7 @@ func parseCV(w http.ResponseWriter, r *http.Request) {
 			content, err := SendTextForRecognize(cont, "cv")
 			if err != nil {
 				log.Errorf("Error happen in SendTextForRecognize : %s", err)
-				return
+				continue
 			}
 			name := ""
 			if len(content.PersonName) > 0 {
@@ -147,7 +177,7 @@ func parseCV(w http.ResponseWriter, r *http.Request) {
 				// 	name = name + content.PersonName[i].RealValue + "\n"
 				// }
 				for i := 0; i < len(content.PersonName); i++ {
-					if strings.ToLower(content.PersonName[i].RealValue) != "hồ sơ" && strings.ToLower(content.PersonName[i].RealValue) != "lý lịch" {
+					if IsRightName(strings.ToLower(content.PersonName[i].RealValue)) {
 						name = content.PersonName[i].RealValue
 						break
 					}
@@ -183,11 +213,71 @@ func parseCV(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, clientsFile.Name())
 }
 
-// func createDirIfNotExist(dir string) {
-// 	if _, err := os.Stat(dir); os.IsNotExist(err) {
-// 		err = os.MkdirAll(dir, 0700)
-// 		if err != nil {
-// 			panic(err)
-// 		}
-// 	}
-// }
+func ResponseError(w http.ResponseWriter, err error) {
+	log.Error("Error API request: ", err)
+	w.WriteHeader(http.StatusBadRequest)
+	ResponseJSON(w, map[string]interface{}{"error": err.Error()})
+}
+
+func ResponseJSON(w http.ResponseWriter, v interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	respBody, err := json.Marshal(v)
+	if err != nil {
+		log.Error("Error in responseJSON: ", err.Error())
+		respBody, _ = json.Marshal(map[string]interface{}{"error": err.Error()})
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write(respBody)
+	} else {
+		w.Write(respBody)
+	}
+}
+
+func CreateDirIfNotExist(dir string) {
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+			err = os.MkdirAll(dir, 0755)
+			if err != nil {
+					panic(err)
+			}
+	}
+}
+
+func IsRightName(PersonName string) bool {
+	switch PersonName {
+	case "hồ sơ" :
+		log.Info("case False")
+		return false
+	case "lý lịch" :
+		log.Info("case False")
+		return false
+	case "công ty" :
+		log.Info("case False")
+		return false
+	case "công ti" :
+		log.Info("case False")
+		return false
+	case "ho chi minh" :
+		log.Info("case False")
+		return false
+	case "hồ chí minh" :
+		log.Info("case False")
+		return false
+	case "duy tan" :
+		log.Info("case False")
+		return false
+	case "ha noi" :
+		log.Info("case False")
+		return false
+	case "hà nội" :
+		log.Info("case False")
+		return false
+	default:
+		log.Info("case true")
+		return true
+
+	}
+	return false
+}
+
+func BytesToString(data []byte) string {
+	return string(data[:])
+}

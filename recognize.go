@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"strings"
 	"io/ioutil"
 	"net/http"
 	"time"
@@ -11,7 +12,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-var regEndpoint = "http://104.197.234.1:9009/"
+var regEndpoint = "http://104.197.234.1:9010/"
 
 type ContentRequest struct {
 	Content  string `json:"content"`
@@ -64,7 +65,10 @@ func SendTextForRecognize(content ContentRequest, uri string) (
 		return result, errors.Wrapf(err, "ReadAll failed: body=%+v\n", resp.Body)
 	}
 	defer resp.Body.Close()
-
+	checkBody := BytesToString(body)
+	checkBody = strings.Replace(checkBody,"","",-1)
+	body = []byte(checkBody)
+	log.Infof("Check Body : %s", body)
 	if err = json.Unmarshal(body, &result); err != nil {
 		return result, errors.Wrapf(err, "Decode failed: body=%s\n", string(body))
 	}
