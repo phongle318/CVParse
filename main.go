@@ -9,9 +9,9 @@ import (
 	"regexp"
 	"strings"
 	"time"
-	"encoding/json"
-		
-	// "syscall"
+	"unicode/utf8"
+
+	"math"
 	"os/exec"
 
 	log "github.com/Sirupsen/logrus"
@@ -21,25 +21,28 @@ import (
 	"github.com/mholt/archiver"
 	"github.com/sajari/docconv"
 )
+
 const (
-	RootFolder string = "./CV/"
-	InputFolder string = "./CV/input_folder"
+	RootFolder   string = "./CV/"
+	InputFolder  string = "./CV/input_folder"
 	OutputFolder string = "./CV/output_folder"
 	ResultFolder string = "./CV/result"
 )
+
 type Client struct { // Our example struct, you can use "-" to ignore a field
-	FileName string `csv:"filename"`
-	Tel      string `csv:"phone"`
-	Email    string `csv:"email"`
-	Name     string `csv:"name"`
-	Content  string `csv:"content"`
+	FileName string `csv:"filename" json:"filename"`
+	Tel      string `csv:"phone" json:"phone"`
+	Email    string `csv:"email" json:"email"`
+	Name     string `csv:"name" json:"name"`
+	Content  string `csv:"content" json:"-"`
 }
 
 func main() {
 	log.Info("Start main")
 	r := mux.NewRouter()
 
-	r.HandleFunc("/parseCV", parseCV).Methods("POST")
+	r.HandleFunc("/parsezip", parseZip).Methods("POST")
+	r.HandleFunc("/parsecv", parseCV).Methods("POST")
 	r.HandleFunc("/", viewCVForm)
 
 	log.Info("Listening at port:", "8050")
@@ -54,19 +57,19 @@ func viewCVForm(w http.ResponseWriter, r *http.Request) {
 	t.Execute(w, nil)
 }
 
-func parseCV(w http.ResponseWriter, r *http.Request) {
+func parseZip(w http.ResponseWriter, r *http.Request) {
 	// createDirIfNotExist("/CV")
 	r.ParseMultipartForm(32 << 20)
+	log.Info("start")
+	log.Info(r)
 	file, handler, err := r.FormFile("attachment")
 	if err != nil {
-		log.Info(err)
+		log.Errorf("Error happen FormFile attachment : %s", err)
 		return
 	}
-	log.Info(file)
-	log.Info("file")
 	defer file.Close()
 	CreateDirIfNotExist(RootFolder)
-	folderGen := InputFolder+time.Now().Format("20060102150405") + "/"
+	folderGen := InputFolder + time.Now().Format("20060102150405") + "/"
 	CreateDirIfNotExist(folderGen)
 	f, err := os.OpenFile(folderGen+handler.Filename, os.O_RDWR|os.O_CREATE, os.ModePerm)
 	if err != nil {
@@ -77,7 +80,7 @@ func parseCV(w http.ResponseWriter, r *http.Request) {
 	io.Copy(f, file)
 
 	extractOutput := OutputFolder + time.Now().Format("20060102150405") + "/"
-	log.Info("handler.Filenam")
+	log.Info("handler.Filename")
 	log.Info(handler.Filename)
 	err = archiver.Zip.Open(folderGen+handler.Filename, extractOutput)
 	if err != nil {
@@ -86,6 +89,7 @@ func parseCV(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	//Get folder file
+	log.Info("ReadDir")
 	files, err := ioutil.ReadDir(extractOutput)
 	if err != nil {
 		log.Errorf("Error happen ReadDir : %s", err)
@@ -94,8 +98,8 @@ func parseCV(w http.ResponseWriter, r *http.Request) {
 	}
 
 	CreateDirIfNotExist(ResultFolder)
-	clientFileName := "/result_"+time.Now().Format("20060102150405")+".csv"
-
+	clientFileName := "/result_" + time.Now().Format("20060102150405") + ".csv"
+	log.Info("OpenFile")
 	clientsFile, err := os.OpenFile(ResultFolder+clientFileName, os.O_RDWR|os.O_CREATE, os.ModePerm)
 	if err != nil {
 		log.Errorf("Error happen OpenFile : %s", err)
@@ -107,6 +111,7 @@ func parseCV(w http.ResponseWriter, r *http.Request) {
 	var input string
 	for f := 0; f < len(files); f++ {
 		log.Info(files[f].Name())
+		log.Info("MatchString")
 		matched, err := regexp.MatchString(".html.*", files[f].Name())
 		if err != nil {
 			log.Fatalf("Fatal happen MatchString html: %s", err)
@@ -144,18 +149,12 @@ func parseCV(w http.ResponseWriter, r *http.Request) {
 				input = res.Body
 			}
 		}
-		// Pre Processing
-		// input = strings.Join(strings.Fields(input), " ")
-		// log.Infof("standard input %s",input)
-		// re := regexp.MustCompile(`([\t\n\r]|(&nbsp;)){3,}`)
+		if input == "" {
+			log.Errorf("Error happen in input : %s", err)
+			continue
+		}
 
-
-		re := regexp.MustCompile(`([\s]|&nbsp;){3,}|((<\s*br\s*\/?>)|[\t\n\r])`)
-		//inputReplace := re.ReplaceAllString(input, " ") //replace with space
-		inputReplace := re.ReplaceAllString(input, " ; ") //replace with ;
-		inputReplace = strings.Join(strings.Fields(inputReplace), " ")
-		log.Infof("Ket Qua %s", inputReplace)
-		// inputReplace = string([]rune(inputReplace)[:1024])
+		inputReplace := PreProcressing(input)
 
 		if inputReplace != "" {
 			//Start Sending Request
@@ -187,18 +186,13 @@ func parseCV(w http.ResponseWriter, r *http.Request) {
 					client.Email = content.Email[0].RealValue
 				}
 				if len(content.PhoneNumber) > 0 {
-					for i := 0; i < len(content.PhoneNumber); i++ {
-						if len(content.PhoneNumber[i].RealValue) > 7 {
-							client.Tel = content.PhoneNumber[i].RealValue
-						}
-					}
+					client.Tel = content.PhoneNumber[0].Value
 				}
 				clients = append(clients, &client)
 			}
 		}
 	}
-	// fileName := clientsFile.Name()
-	// fileBase := filepath.Base(fileName)
+
 	err = gocsv.MarshalFile(&clients, clientsFile) // Use this to save the CSV back to the file
 	if err != nil {
 		log.Errorf("Error happen in MarshalFile : %s", err)
@@ -209,74 +203,96 @@ func parseCV(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition", "attachment; filename='attachment.zip'")
 
 	io.Copy(w, clientsFile)
-
 	http.ServeFile(w, r, clientsFile.Name())
 }
 
-func ResponseError(w http.ResponseWriter, err error) {
-	log.Error("Error API request: ", err)
-	w.WriteHeader(http.StatusBadRequest)
-	ResponseJSON(w, map[string]interface{}{"error": err.Error()})
+func PreProcressing(input string) string {
+	log.Info(input)
+
+	re1 := regexp.MustCompile(`(\\a)|((<\s*br\s*\/?>)|[\t\n\r])`)
+	re2 := regexp.MustCompile(`([\s]|&nbsp;){2,}`)
+	re3 := regexp.MustCompile(`(\s;){2,}`)
+	//inputReplace := re.ReplaceAllString(input, " ") //replace with space
+	inputReplace := re1.ReplaceAllString(input, " ; ")       //replace with ;
+	inputReplace = re2.ReplaceAllString(inputReplace, " ")   //replace with space
+	inputReplace = re3.ReplaceAllString(inputReplace, " ; ") //replace multi ; with ;
+	inputReplace = strings.Join(strings.Fields(inputReplace), " ")
+	log.Infof("Ket Qua %s", inputReplace)
+	numberOfText := math.Min(float64(utf8.RuneCountInString(inputReplace)), 2048)
+	log.Info(len(inputReplace))
+	log.Info(numberOfText)
+
+	inputReplace = string([]rune(inputReplace)[:int(numberOfText)])
+	return inputReplace
 }
 
-func ResponseJSON(w http.ResponseWriter, v interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	respBody, err := json.Marshal(v)
-	if err != nil {
-		log.Error("Error in responseJSON: ", err.Error())
-		respBody, _ = json.Marshal(map[string]interface{}{"error": err.Error()})
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write(respBody)
-	} else {
-		w.Write(respBody)
-	}
-}
+// func sendEmail(body string) {
+// 	// Create a new session in the us-west-2 region.
+// 	// Replace us-west-2 with the AWS Region you're using for Amazon SES.
+// 	sess, err := session.NewSession(&aws.Config{
+// 		Region: aws.String("us-west-2")},
+// 	)
 
-func CreateDirIfNotExist(dir string) {
-	if _, err := os.Stat(dir); os.IsNotExist(err) {
-			err = os.MkdirAll(dir, 0755)
-			if err != nil {
-					panic(err)
-			}
-	}
-}
+// 	// Create an SES session.
+// 	svc := ses.New(sess)
 
-func IsRightName(PersonName string) bool {
-	switch PersonName {
-	case "hồ sơ" :
-		log.Info("case False")
-		return false
-	case "lý lịch" :
-		log.Info("case False")
-		return false
-	case "công ty" :
-		log.Info("case False")
-		return false
-	case "công ti" :
-		log.Info("case False")
-		return false
-	case "ho chi minh" :
-		log.Info("case False")
-		return false
-	case "hồ chí minh" :
-		log.Info("case False")
-		return false
-	case "duy tan" :
-		log.Info("case False")
-		return false
-	case "ha noi" :
-		log.Info("case False")
-		return false
-	case "hà nội" :
-		log.Info("case False")
-		return false
-	default:
-		log.Info("case true")
-		return true
+// 	// Assemble the email.
+// 	input := &ses.SendEmailInput{
+// 		Destination: &ses.Destination{
+// 			CcAddresses: []*string{},
+// 			ToAddresses: []*string{
+// 				aws.String(Recipient),
+// 			},
+// 		},
+// 		Message: &ses.Message{
+// 			Body: &ses.Body{
+// 				Html: &ses.Content{
+// 					Charset: aws.String(CharSet),
+// 					Data:    aws.String(HtmlBody),
+// 				},
+// 				Text: &ses.Content{
+// 					Charset: aws.String(CharSet),
+// 					Data:    aws.String(TextBody),
+// 				},
+// 			},
+// 			Subject: &ses.Content{
+// 				Charset: aws.String(CharSet),
+// 				Data:    aws.String(Subject),
+// 			},
+// 		},
+// 		Source: aws.String(Sender),
+// 		// Uncomment to use a configuration set
+// 		//ConfigurationSetName: aws.String(ConfigurationSet),
+// 	}
 
-	}
-	return false
-}
+// 	// Attempt to send the email.
+// 	result, err := svc.SendEmail(input)
+
+// 	// Display error messages if they occur.
+// 	if err != nil {
+// 		if aerr, ok := err.(awserr.Error); ok {
+// 			switch aerr.Code() {
+// 			case ses.ErrCodeMessageRejected:
+// 				fmt.Println(ses.ErrCodeMessageRejected, aerr.Error())
+// 			case ses.ErrCodeMailFromDomainNotVerifiedException:
+// 				fmt.Println(ses.ErrCodeMailFromDomainNotVerifiedException, aerr.Error())
+// 			case ses.ErrCodeConfigurationSetDoesNotExistException:
+// 				fmt.Println(ses.ErrCodeConfigurationSetDoesNotExistException, aerr.Error())
+// 			default:
+// 				fmt.Println(aerr.Error())
+// 			}
+// 		} else {
+// 			// Print the error, cast err to awserr.Error to get the Code and
+// 			// Message from an error.
+// 			fmt.Println(err.Error())
+// 		}
+
+// 		return
+// 	}
+
+// 	fmt.Println("Email Sent to address: " + Recipient)
+// 	fmt.Println(result)
+// }
 
 func BytesToString(data []byte) string {
 	return string(data[:])
