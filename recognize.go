@@ -3,16 +3,16 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"strings"
 	"io/ioutil"
 	"net/http"
+	"strings"
 	"time"
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/pkg/errors"
 )
 
-var regEndpoint = "http://104.197.234.1:9010/"
+var regEndpoint = "http://118.68.169.120:9010/"
 
 type ContentRequest struct {
 	Content  string `json:"content"`
@@ -66,7 +66,7 @@ func SendTextForRecognize(content ContentRequest, uri string) (
 	}
 	defer resp.Body.Close()
 	checkBody := BytesToString(body)
-	checkBody = strings.Replace(checkBody,"","",-1)
+	checkBody = strings.Replace(checkBody, "", "", -1)
 	body = []byte(checkBody)
 	log.Infof("Check Body : %s", body)
 	if err = json.Unmarshal(body, &result); err != nil {

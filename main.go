@@ -207,13 +207,14 @@ func parseZip(w http.ResponseWriter, r *http.Request) {
 }
 
 func PreProcressing(input string) string {
+	log.Info("PreProcressing")
 	log.Info(input)
-
 	re1 := regexp.MustCompile(`(\\a)|((<\s*br\s*\/?>)|[\t\n\r])`)
 	re2 := regexp.MustCompile(`([\s]|&nbsp;){2,}`)
 	re3 := regexp.MustCompile(`(\s;){2,}`)
 	//inputReplace := re.ReplaceAllString(input, " ") //replace with space
-	inputReplace := re1.ReplaceAllString(input, " ; ")       //replace with ;
+	inputReplace := re1.ReplaceAllString(input, " ; ") //replace with ;
+	inputReplace = html2text.HTML2Text(inputReplace)
 	inputReplace = re2.ReplaceAllString(inputReplace, " ")   //replace with space
 	inputReplace = re3.ReplaceAllString(inputReplace, " ; ") //replace multi ; with ;
 	inputReplace = strings.Join(strings.Fields(inputReplace), " ")
