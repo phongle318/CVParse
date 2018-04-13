@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+	"errors"
 
 	"math"
 	"os/exec"
@@ -31,9 +32,9 @@ const (
 
 type Client struct { // Our example struct, you can use "-" to ignore a field
 	FileName string `csv:"filename" json:"filename"`
-	Tel      string `csv:"phone" json:"phone"`
-	Email    string `csv:"email" json:"email"`
-	Name     string `csv:"name" json:"name"`
+	Tel      string `csv:"phone" json:"phone" default:" "`
+	Email    string `csv:"email" json:"email" default:" "`
+	Name     string `csv:"name" json:"name" default:" "`
 	Content  string `csv:"content" json:"-"`
 }
 
@@ -140,6 +141,9 @@ func parseZip(w http.ResponseWriter, r *http.Request) {
 					log.Fatal(err)
 				}
 				input = BytesToString(out)
+				log.Infof("=============================================")
+				log.Infof("===================inputPDF=========================")
+				log.Infof(input)
 			} else {
 				res, err := docconv.ConvertPath(extractOutput + files[f].Name())
 				if err != nil {
@@ -154,7 +158,11 @@ func parseZip(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		inputReplace := PreProcressing(input)
+		inputReplace, err := PreProcressing(input)
+		if err != nil {
+			log.Errorf("Error happen in PreProcressing : %s", err)
+			return
+		}
 
 		if inputReplace != "" {
 			//Start Sending Request
@@ -165,7 +173,7 @@ func parseZip(w http.ResponseWriter, r *http.Request) {
 			content, err := SendTextForRecognize(cont, "cv")
 			if err != nil {
 				log.Errorf("Error happen in SendTextForRecognize : %s", err)
-				continue
+				return
 			}
 			name := ""
 			if len(content.PersonName) > 0 {
@@ -206,7 +214,7 @@ func parseZip(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, clientsFile.Name())
 }
 
-func PreProcressing(input string) string {
+func PreProcressing(input string) (result string, err error) {
 	log.Info("PreProcressing")
 	log.Info(input)
 	re1 := regexp.MustCompile(`(\\a)|((<\s*br\s*\/?>)|[\t\n\r])`)
@@ -220,11 +228,23 @@ func PreProcressing(input string) string {
 	inputReplace = strings.Join(strings.Fields(inputReplace), " ")
 	log.Infof("Ket Qua %s", inputReplace)
 	numberOfText := math.Min(float64(utf8.RuneCountInString(inputReplace)), 2048)
+
 	log.Info(len(inputReplace))
 	log.Info(numberOfText)
 
 	inputReplace = string([]rune(inputReplace)[:int(numberOfText)])
-	return inputReplace
+
+	words := strings.Fields(inputReplace)
+	for i, word := range words {
+		log.Info(i, " => ", word)
+		log.Info(len(word))
+		if len(word) > 60 {
+			return "", errors.New("Cannot processing this file")
+		}
+	}
+
+	log.Info(inputReplace)
+	return inputReplace, nil
 }
 
 func BytesToString(data []byte) string {

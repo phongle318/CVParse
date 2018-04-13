@@ -13,6 +13,7 @@ import (
 )
 
 var regEndpoint = "http://118.68.169.120:9010/"
+//var regEndpoint = "http://10.3.16.19:9010/"
 
 type ContentRequest struct {
 	Content  string `json:"content"`
@@ -51,7 +52,7 @@ func SendTextForRecognize(content ContentRequest, uri string) (
 	req.Header.Set("Content-Type", "application/json")
 	tr := &http.Transport{}
 	httpClient := &http.Client{
-		Timeout:   100 * time.Second,
+		Timeout:   20 * time.Second,
 		Transport: tr,
 	}
 

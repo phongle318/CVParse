@@ -80,6 +80,9 @@ func parseCV(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			input = BytesToString(out)
+			log.Infof("=============================================")
+			log.Infof("===================inputPDF=========================")
+			log.Infof(input)
 		} else {
 			log.Info(handler.Filename)
 			res, err := docconv.ConvertPath(folderGen + handler.Filename)
@@ -98,8 +101,15 @@ func parseCV(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	inputReplace := PreProcressing(input)
 	var client Client
+
+	inputReplace, err := PreProcressing(input)
+	if err != nil {
+		log.Errorf("Error happen in PreProcressing : %s", err)
+		client.FileName = err.Error()
+		ResponseJSON(w, client)
+		return
+	}
 	if inputReplace != "" {
 		//Start Sending Request
 		cont := ContentRequest{}
@@ -109,7 +119,8 @@ func parseCV(w http.ResponseWriter, r *http.Request) {
 		content, err := SendTextForRecognize(cont, "cv")
 		if err != nil {
 			log.Errorf("Error happen in SendTextForRecognize : %s", err)
-			ResponseError(w, err)
+			//ResponseError(w, err)
+			ResponseJSON(w, client)
 			return
 		}
 		name := ""
