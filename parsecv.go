@@ -18,6 +18,8 @@ import (
 )
 
 func parseCV(w http.ResponseWriter, r *http.Request) {
+	var client Client
+
 	r.ParseMultipartForm(32 << 20)
 	file, handler, err := r.FormFile("attachment")
 	if err != nil {
@@ -26,6 +28,7 @@ func parseCV(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer file.Close()
+	client.FileName = handler.Filename
 	CreateDirIfNotExist(RootFolder)
 	folderGen := InputFolder + time.Now().Format("20060102") + "/"
 	CreateDirIfNotExist(folderGen)
@@ -80,8 +83,6 @@ func parseCV(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			input = BytesToString(out)
-			log.Infof("=============================================")
-			log.Infof("===================inputPDF=========================")
 			log.Infof(input)
 		} else {
 			log.Info(handler.Filename)
@@ -97,16 +98,17 @@ func parseCV(w http.ResponseWriter, r *http.Request) {
 	}
 	if input == "" {
 		log.Error("Cannot processing this file")
-		ResponseError(w, errors.New("Cannot processing this file"))
+		//ResponseError(w, errors.New("Cannot processing this file"))
+		client.Message = err.Error()
+		ResponseJSON(w, client)
 		return
 	}
 
-	var client Client
 
 	inputReplace, err := PreProcressing(input)
 	if err != nil {
 		log.Errorf("Error happen in PreProcressing : %s", err)
-		client.FileName = err.Error()
+		client.Message = err.Error()
 		ResponseJSON(w, client)
 		return
 	}
@@ -119,6 +121,7 @@ func parseCV(w http.ResponseWriter, r *http.Request) {
 		content, err := SendTextForRecognize(cont, "cv")
 		if err != nil {
 			log.Errorf("Error happen in SendTextForRecognize : %s", err)
+			client.Message = err.Error()
 			//ResponseError(w, err)
 			ResponseJSON(w, client)
 			return

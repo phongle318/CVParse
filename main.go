@@ -36,6 +36,7 @@ type Client struct { // Our example struct, you can use "-" to ignore a field
 	Email    string `csv:"email" json:"email" default:" "`
 	Name     string `csv:"name" json:"name" default:" "`
 	Content  string `csv:"content" json:"-"`
+	Message  string `csv:"message" json:"message" default:"success"`
 }
 
 func main() {
@@ -141,8 +142,6 @@ func parseZip(w http.ResponseWriter, r *http.Request) {
 					log.Fatal(err)
 				}
 				input = BytesToString(out)
-				log.Infof("=============================================")
-				log.Infof("===================inputPDF=========================")
 				log.Infof(input)
 			} else {
 				res, err := docconv.ConvertPath(extractOutput + files[f].Name())
